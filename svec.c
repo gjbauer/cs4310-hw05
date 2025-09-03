@@ -36,11 +36,12 @@ float keygen(svec* xs, int n)
 void
 free_svec(svec* sv)
 {
-    for (int ii=sv->size-1; ii >=0; ii--) free(sv->data[ii]);
+    for (int ii = 0; ii < sv->size; ii++) {
+        free(sv->data[ii]);
+    }
     free(sv->data);
     free(sv->cdata);
     free(sv);
-    //pthread_mutex_destroy(&sv->lock);
 }
 
 char*

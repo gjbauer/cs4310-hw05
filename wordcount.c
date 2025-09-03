@@ -5,101 +5,104 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include "svec.h"
 
-void
-insertionSort(svec* xs)
+/* I originally wrote code which passed four out of five tests.
+ * After setting it down and not looking at it for a while,
+ * rather than spending my time debugging it, I uploaded
+ * it to DeepSeek with yellowstone.txt and prompted it to
+ * correct the code. The following is what it returned
+ * and passed the final test with meditations.txt*/
+
+void sort_svec_alphabetically(svec* sv)
 {
-    for (int i=1; i<xs->size; i++) {
-	    int j = i - 1;
-	    int key = keygen(xs, i);
-
-	    while(j >= 0 && keygen(xs, j) > key) {
-		    svec_swap(xs, j+1, j);
-		    j--;
-	    }
-    }
-    return;
-}
-
-void
-insertionSortD(svec *xs)
-{
-	for (int i=1; i<xs->size; i++) {
-		int j = i - 1;
-		int key = keygen(xs, i);
-
-		while(j >=0 && keygen(xs, j) < key) {
-			svec_swap(xs, j+1, j);
-			j--;
-		}
-	}
-	return;
-}
-
-void
-chomp(char* text)
-{
-    int j=strlen(text);
-    char arr[j];
-    strncpy(arr, text, j);
-    strncpy(text, arr, j);
-    if (text[0]==' ') {
-        int i;
-        for(i=0; text[i]==' '; i++);
-        for(int j=0; text[j]!=0; j++, i++) text[j]=text[i];
-    }
-    for(int ii = 0; text[ii]; ++ii) {
-        if (!((text[ii]>=97)&&(text[ii]<=122)||(text[ii]>=65)&&(text[ii]<=90)||(text[ii]==32))) {
-            text[ii] = 0;
+    // Simple bubble sort for alphabetical order
+    for (int i = 0; i < sv->size - 1; i++) {
+        for (int j = 0; j < sv->size - i - 1; j++) {
+            if (strcmp(sv->data[j], sv->data[j + 1]) > 0) {
+                // Swap both data and cdata
+                char* temp_data = sv->data[j];
+                sv->data[j] = sv->data[j + 1];
+                sv->data[j + 1] = temp_data;
+                
+                int temp_cdata = sv->cdata[j];
+                sv->cdata[j] = sv->cdata[j + 1];
+                sv->cdata[j + 1] = temp_cdata;
+            }
         }
     }
 }
 
-int get(char *buf, int n, const char *src, unsigned int pos, struct stat *fs)
+void process_word(svec* sv, const char* word_start, int word_len)
 {
-	int i;
-	for (i=0; i<n; i++) buf[i]=0;
-	for (i=0; i<n && pos<fs->st_size && src[pos]!='\n'; i++, pos++) buf[i]=src[pos];
-	return pos+1;
+    if (word_len == 0) return;
+    
+    char* word = malloc(word_len + 1);
+    for (int i = 0; i < word_len; i++) {
+        word[i] = tolower(word_start[i]);
+    }
+    word[word_len] = '\0';
+    
+    // Check if word already exists
+    int found = 0;
+    for (int i = 0; i < sv->size; i++) {
+        if (strcmp(sv->data[i], word) == 0) {
+            sv->cdata[i]++;
+            found = 1;
+            break;
+        }
+    }
+    
+    if (!found) {
+        // Add new word
+        if (sv->size >= sv->cap - 1) {
+            sv->cap *= 2;
+            sv->data = realloc(sv->data, sv->cap * sizeof(char*));
+            sv->cdata = realloc(sv->cdata, sv->cap * sizeof(int));
+        }
+        sv->data[sv->size] = word;
+        sv->cdata[sv->size] = 1;
+        sv->size++;
+    } else {
+        free(word);
+    }
 }
 
-void loop(svec *sv, const char *src, struct stat *fs)
+void process_line(svec* sv, const char* line)
 {
-	char temp[128];
-	unsigned int pos=0;
-	while (1) {
-		pos = get(temp, 128, src, pos, fs);
-		if (pos>=fs->st_size)
-		{
-	        	break;
-	        }
-
-        	chomp(temp);
-       		svec_push_back(sv, temp);
-    	}
-	return;
+    int word_start = -1;
+    
+    for (int i = 0; line[i] != '\0'; i++) {
+        if (isalpha(line[i])) {
+            if (word_start == -1) {
+                word_start = i;
+            }
+        } else {
+            if (word_start != -1) {
+                process_word(sv, line + word_start, i - word_start);
+                word_start = -1;
+            }
+        }
+    }
+    
+    // Process last word if any
+    if (word_start != -1) {
+        process_word(sv, line + word_start, strlen(line) - word_start);
+    }
 }
 
-void loop2(svec *sv, FILE *fh)
+void process_file_stream(svec* sv, FILE* fh)
 {
-	char temp[128];
-	while (1) {
-		char *line;
-		line = fgets(temp, 128, fh);
-		if (!line)
-		{
-	        	break;
-	        }
-
-        	chomp(line);
-       		svec_push_back(sv, line);
-    	}
-	return;
+    char line[256];
+    while (fgets(line, sizeof(line), fh)) {
+        // Remove newline if present
+        line[strcspn(line, "\n")] = '\0';
+        process_line(sv, line);
+    }
 }
 
-int
-main(int argc, char* argv[])
+int main(int argc, char* argv[])
 {
     if (argc != 2) {
         printf("Usage:\n  %s input-file\n", argv[0]);
@@ -107,33 +110,26 @@ main(int argc, char* argv[])
     }
 
     svec* xs = make_svec();
-    struct stat *fs = malloc(sizeof(struct stat));;
-    const char *map;
-
-    if (strcmp(argv[1], "xmas.txt")!=0) {
-        FILE* fh;
-        fh = fopen(argv[1], "r");
-        loop2(xs, fh);
-	fclose(fh);
+    
+    FILE* fh = fopen(argv[1], "r");
+    if (fh) {
+        process_file_stream(xs, fh);
+        fclose(fh);
+    } else {
+        printf("Error: Could not open file %s\n", argv[1]);
+        free_svec(xs);
+        return 1;
     }
 
-    else {
-    	int fd;
-
-    	fd = open(argv[1], O_RDONLY);
-
-    	fstat(fd, fs);
-
-    	map = mmap(0, fs->st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    	loop(xs, map, fs);
+    sort_svec_alphabetically(xs);
+    
+    // Print words with count > 1, sorted alphabetically
+    for (int i = 0; i < xs->size; i++) {
+        if (xs->cdata[i] > 1) {
+            printf("%d\t%s\n", xs->cdata[i], xs->data[i]);
+        }
     }
-
-
-    insertionSort(xs);
-
-
-    svec_print(xs);
-
-    //free_svec(xs);
+    
+    free_svec(xs);
     return 0;
 }
